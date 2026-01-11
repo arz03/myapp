@@ -1,23 +1,78 @@
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:json_annotation/json_annotation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
 
+part 'main.g.dart';
+
 // Data Model for a Class
+@JsonSerializable()
 class Class {
   final String studentName;
   final String topic;
   final DateTime date;
 
   Class({required this.studentName, required this.topic, required this.date});
+
+  factory Class.fromJson(Map<String, dynamic> json) => _$ClassFromJson(json);
+  Map<String, dynamic> toJson() => _$ClassToJson(this);
+}
+
+// Service to handle JSON storage
+class JsonStorageService {
+  Future<String> get _localPath async {
+    final directory = await getApplicationDocumentsDirectory();
+    return directory.path;
+  }
+
+  Future<File> get _localFile async {
+    final path = await _localPath;
+    return File('$path/classes.json');
+  }
+
+  Future<List<Class>> readClasses() async {
+    try {
+      final file = await _localFile;
+      final contents = await file.readAsString();
+      final List<dynamic> json = jsonDecode(contents);
+      return json.map((e) => Class.fromJson(e)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<void> writeClasses(List<Class> classes) async {
+    final file = await _localFile;
+    final json = classes.map((c) => c.toJson()).toList();
+    await file.writeAsString(jsonEncode(json));
+  }
 }
 
 // State Management with Provider
 class TuitionProvider with ChangeNotifier {
-  final List<Class> _classes = [];
+  final JsonStorageService _storageService = JsonStorageService();
+  List<Class> _classes = [];
 
   List<Class> get classes => _classes;
+
+  TuitionProvider() {
+    _loadClasses();
+  }
+
+  Future<void> _loadClasses() async {
+    _classes = await _storageService.readClasses();
+    notifyListeners();
+  }
+
+  Future<void> _saveClasses() async {
+    await _storageService.writeClasses(_classes);
+  }
 
   List<Class> getClassesForDay(DateTime day) {
     return _classes.where((c) => isSameDay(c.date, day)).toList();
@@ -25,11 +80,13 @@ class TuitionProvider with ChangeNotifier {
 
   void addClass(Class newClass) {
     _classes.add(newClass);
+    _saveClasses();
     notifyListeners();
   }
 }
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(
     ChangeNotifierProvider(
       create: (context) => TuitionProvider(),
@@ -140,7 +197,8 @@ class _TuitionHomePageState extends State<TuitionHomePage> {
               });
             },
             eventLoader: (day) {
-              return Provider.of<TuitionProvider>(context, listen: false).getClassesForDay(day);
+              return Provider.of<TuitionProvider>(context, listen: false)
+                  .getClassesForDay(day);
             },
           ),
           const SizedBox(height: 8.0),
@@ -170,3 +228,5 @@ class _TuitionHomePageState extends State<TuitionHomePage> {
     );
   }
 }
+
+
